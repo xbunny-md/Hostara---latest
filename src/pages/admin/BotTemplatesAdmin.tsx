@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { db } from '../../lib/firebase'
-import { ref, onValue, set, push, remove } from 'firebase/database'
+import { supabase } from '../../lib/supabase'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Plus, Trash, Edit, X, Save } from 'lucide-react'
@@ -27,15 +26,17 @@ export function BotTemplatesAdmin() {
   })
 
   useEffect(() => {
-    const unsub = onValue(ref(db, 'bot_templates'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val()
-        setTemplates(Object.entries(data).map(([key, val]: any) => ({ id: key, ...val })))
-      } else {
-        setTemplates([])
-      }
-    })
-    return () => unsub()
+    const fetchTemplates = async () => {
+       const { data } = await supabase.from('bot_templates').select('*');
+       if (data) setTemplates(data);
+    };
+    fetchTemplates();
+    
+    const channel = supabase.channel('bot_templates_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'bot_templates' }, () => {
+      fetchTemplates();
+    }).subscribe();
+
+    return () => { supabase.removeChannel(channel) };
   }, [])
 
   const handleEdit = (template: any) => {
@@ -56,7 +57,7 @@ export function BotTemplatesAdmin() {
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this template?')) {
-      await remove(ref(db, `bot_templates/${id}`))
+      await supabase.from('bot_templates').delete().eq('id', id);
     }
   }
 
@@ -65,13 +66,13 @@ export function BotTemplatesAdmin() {
       ...formData,
       required_envs: formData.required_envs.split(',').map(e => e.trim()).filter(e => e),
       cost: Number(formData.cost) || 0,
-      downloads: editingId ? (templates.find(t => t.id === editingId)?.downloads || 0) : 0
+      downloads: editingId && editingId !== 'new' ? (templates.find(t => t.id === editingId)?.downloads || 0) : 0
     }
     
-    if (editingId) {
-      await set(ref(db, `bot_templates/${editingId}`), payload)
+    if (editingId && editingId !== 'new') {
+      await supabase.from('bot_templates').update(payload).eq('id', editingId);
     } else {
-      await push(ref(db, 'bot_templates'), payload)
+      await supabase.from('bot_templates').insert(payload);
     }
     
     setEditingId(null)

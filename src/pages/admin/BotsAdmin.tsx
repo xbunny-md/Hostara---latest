@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { db } from '../../lib/firebase'
-import { ref, onValue, remove, update } from 'firebase/database'
+import { supabase } from '../../lib/supabase'
 import { Button } from '../../components/ui/button'
 import { Trash, Ban, Edit, Activity } from 'lucide-react'
 
@@ -9,40 +8,39 @@ export function BotsAdmin() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onValue(ref(db, 'users'), (snapshot) => {
-      if (snapshot.exists()) {
-        const usersData = snapshot.val()
-        const allBots: any[] = []
-        for (const [uid, userRecord] of Object.entries(usersData) as any) {
-          if (userRecord.bots) {
-            for (const [botId, botData] of Object.entries(userRecord.bots) as any) {
-              allBots.push({
-                ...botData,
-                id: botId,
-                userId: uid,
-                userName: userRecord.email || userRecord.name || uid
-              })
-            }
-          }
-        }
-        setBots(allBots.sort((a, b) => b.created_at - a.created_at))
-      } else {
-        setBots([])
+    const fetchBots = async () => {
+      const { data } = await supabase.from('user_bots').select(`
+        *,
+        users!user_bots_user_id_fkey ( email, name )
+      `).order('created_at', { ascending: false })
+      
+      if (data) {
+        setBots(data.map((b: any) => ({
+          ...b,
+          userId: b.user_id,
+          userName: b.users?.email || b.users?.name || b.user_id
+        })));
       }
       setLoading(false)
-    })
-    return () => unsub()
+    }
+
+    fetchBots()
+    const channel = supabase.channel('bots_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'user_bots' }, () => {
+      fetchBots()
+    }).subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const handleDelete = async (userId: string, botId: string) => {
+  const handleDelete = async (botId: string) => {
     if (confirm('Are you sure you want to delete this bot deployment?')) {
-      await remove(ref(db, `users/${userId}/bots/${botId}`))
+      await supabase.from('user_bots').delete().eq('id', botId)
     }
   }
 
   const handleSuspend = async (bot: any) => {
     const newStatus = bot.status === 'suspended' ? 'published' : 'suspended'
-    await update(ref(db, `users/${bot.userId}/bots/${bot.id}`), { status: newStatus })
+    await supabase.from('user_bots').update({ status: newStatus }).eq('id', bot.id)
   }
 
   const getStatusColor = (status: string) => {
@@ -80,11 +78,11 @@ export function BotsAdmin() {
                   <div className="text-xs text-zinc-500 font-mono mt-0.5">{bot.id}</div>
                 </td>
                 <td className="px-4 py-3 text-zinc-300">
-                  {bot.templateId || 'custom'}
+                  {bot.template_id || bot.templateId || 'custom'}
                 </td>
                 <td className="px-4 py-3">
                   <div className="text-xs font-mono text-zinc-400 truncate max-w-[120px]" title={bot.userId}>
-                    {bot.userId}
+                    {bot.userName || bot.userId}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -97,7 +95,7 @@ export function BotsAdmin() {
                      <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-400 hover:text-orange-300 hover:bg-orange-400/10" onClick={() => handleSuspend(bot)} title={bot.status === 'suspended' ? 'Unsuspend' : 'Suspend'}>
                        <Ban className="h-4 w-4" />
                      </Button>
-                     <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-400/10" onClick={() => handleDelete(bot.userId, bot.id)} title="Delete">
+                     <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-400/10" onClick={() => handleDelete(bot.id)} title="Delete">
                        <Trash className="h-4 w-4" />
                      </Button>
                   </div>

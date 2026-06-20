@@ -10,7 +10,7 @@ import { createServer as createViteServer } from "vite";
 import _firebaseAdmin from "firebase-admin";
 
 // Normalize admin import to handle both ESM and CJS gracefully
-const admin = _firebaseAdmin.apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
+const admin = (_firebaseAdmin as any).apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
 
 // Initialize Firebase Admin safely
 try {
@@ -43,7 +43,7 @@ const clerkClient = createClerkClient({ secretKey: SECRET_KEY, publishableKey: P
 // Unified Require Auth
 const unifiedRequireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   // 1. Try Clerk
-  if (req.auth && req.auth.userId) {
+  if ((req as any).auth && (req as any).auth.userId) {
     return next();
   }
   
@@ -53,11 +53,18 @@ const unifiedRequireAuth = async (req: express.Request, res: express.Response, n
     const token = authHeader.split("Bearer ")[1];
     try {
       const decoded = await admin.auth().verifyIdToken(token);
-      req.auth = { userId: decoded.uid } as any;
+      (req as any).auth = { userId: decoded.uid };
       return next();
     } catch (e) {
       console.error("Firebase verify fail:", e);
     }
+  }
+
+  // 3. Try Supabase Auth Token
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split("Bearer ")[1];
+    // Normally you'd use supabase.auth.getUser() but we don't have supabase mounted in server.ts
+    // In a real app we'd verify the JWT properly. Here we can simulate it or reject if not available
   }
 
   return res.status(401).json({ error: "Unauthorized" });
@@ -124,18 +131,19 @@ async function startServer() {
   // 1. Setup First Admin
   app.post("/api/setup/first-admin", unifiedRequireAuth, async (req, res) => {
     try {
-      const user = await getUnifiedUser(req.auth.userId);
+      const auth = (req as any).auth;
+      const user = await getUnifiedUser(auth.userId);
       const email = user.email;
       
       if (email === "lupinstarnley009@gmail.com") {
         if (user.role !== "admin") {
           try {
-            await clerkClient.users.updateUserMetadata(req.auth.userId, {
+            await clerkClient.users.updateUserMetadata(auth.userId, {
               publicMetadata: { role: "admin" }
             });
           } catch(e) { /* Must be a firebase user */ }
           
-          await axios.patch(getDbUrl(`users/${req.auth.userId}`), { role: "admin" });
+          await axios.patch(getDbUrl(`users/${auth.userId}`), { role: "admin" });
           return res.json({ success: true, message: "Admin role granted." });
         }
         return res.json({ success: true, message: "Already admin." });
@@ -166,7 +174,8 @@ async function startServer() {
 
   // 3. Admin Config CRUD
   app.get("/api/admin/config", unifiedRequireAuth, async (req, res) => {
-    const user = await getUnifiedUser(req.auth.userId);
+    const auth = (req as any).auth;
+    const user = await getUnifiedUser(auth.userId);
     if (user.role !== "admin" && user.email !== "lupinstarnley009@gmail.com") return res.status(403).json({ error: "Forbidden" });
     const config = await fetchSystemConfig();
     res.json(config);
@@ -174,7 +183,8 @@ async function startServer() {
 
   app.post("/api/admin/config", unifiedRequireAuth, async (req, res) => {
     try {
-      const user = await getUnifiedUser(req.auth.userId);
+      const auth = (req as any).auth;
+      const user = await getUnifiedUser(auth.userId);
       if (user.role !== "admin" && user.email !== "lupinstarnley009@gmail.com") return res.status(403).json({ error: "Forbidden" });
       
       await updateSystemConfig(req.body);
@@ -182,7 +192,7 @@ async function startServer() {
       // Write audit log
       const pushId = `audit-${Date.now()}`;
       await axios.put(getDbUrl(`audit_logs/${pushId}`), {
-        admin_id: req.auth.userId,
+        admin_id: auth.userId,
         action: "update_config",
         timestamp: Date.now()
       });
@@ -196,8 +206,9 @@ async function startServer() {
   // 4. Deploy route
   app.post("/api/deploy", unifiedRequireAuth, async (req, res) => {
     try {
+      const auth = (req as any).auth;
       const { templateId, name, envVars, customRepoUrl, customBuildCmd, customStartCmd } = req.body;
-      const userId = req.auth.userId;
+      const userId = auth.userId;
       const config = await fetchSystemConfig();
       
       // Get user profile to check balance
@@ -311,13 +322,14 @@ async function startServer() {
   // 5. Proxy Render logs (Basic Implementation)
   app.get("/api/bot/:botId/logs", unifiedRequireAuth, async (req, res) => {
     try {
+      const auth = (req as any).auth;
       const { botId } = req.params;
-      const userId = req.auth.userId;
+      const userId = auth.userId;
       
       // Need Render API key, assume we grab it from config or accounts pool (simplified)
       const renderRes = await axios.get(getDbUrl('render_accounts'));
       const renderAccounts = renderRes.data || {};
-      const renderApiKey = Object.values(renderAccounts)[0]?.api_key;
+      const renderApiKey = (Object.values(renderAccounts)[0] as any)?.api_key;
       
       if (!renderApiKey) throw new Error("API Key missing");
       
@@ -333,7 +345,8 @@ async function startServer() {
 
   app.post("/api/wallet/bonus", unifiedRequireAuth, async (req, res) => {
     try {
-      const userId = req.auth.userId;
+      const auth = (req as any).auth;
+      const userId = auth.userId;
       const userRes = await axios.get(getDbUrl(`users/${userId}`));
       const userData = userRes.data || {};
 

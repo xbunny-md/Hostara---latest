@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react"
-import { ref, onValue, set, get } from "firebase/database"
-import { db } from "../lib/firebase"
+import React, { useEffect, useState } from "react"
+import { supabase } from "../lib/supabase"
 import axios from "axios"
 import { Link, useSearchParams } from "react-router-dom"
 import { Button } from "../components/ui/button"
@@ -40,57 +39,61 @@ export default function DashboardPage() {
       return;
     }
 
-    // Listen to User Data
-    const userRef = ref(db, `users/${userId}`);
-    const unsubUser = onValue(userRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        set(userRef, {
+    const fetchData = async () => {
+      // Setup User if missing
+      let uData;
+      const { data: supaUser } = await supabase.from('users').select('*').eq('id', userId).single();
+      if (!supaUser) {
+        const newUser = {
+          id: userId,
           email: user.emailAddresses?.[0]?.emailAddress || (user as any).email || "",
           phone: user.primaryPhoneNumber?.phoneNumber || (user as any).phone || "",
           plan: 'trial',
           balance: 0,
-          created_at: Date.now(),
-        });
+        };
+        await supabase.from('users').insert(newUser);
+        uData = newUser;
       } else {
-        const val = snapshot.val()
-        setUserData(val)
-        if (val.bots) {
-          const list = Object.entries(val.bots).map(([id, data]) => ({ id, ...(data as any) }))
-          list.sort((a,b) => (b.created_at || 0) - (a.created_at || 0));
-          setBots(list)
-        } else {
-          setBots([])
-        }
+        uData = supaUser;
       }
-    });
+      setUserData(uData);
 
-    // Listen to Templates
-    const templatesRef = ref(db, `bot_templates`);
-    const unsubTemplates = onValue(templatesRef, (snapshot) => {
-      const val = snapshot.val()
-      if (val) {
-        // Note: In store we might not filter by status, or we might. Removed status filter for now since it's not strictly set in Admin.
-        const list = Object.entries(val).map(([id, data]) => ({ id, ...(data as any) }))
-        setTemplates(list)
+      // Fetch Bots
+      const { data: userBots } = await supabase.from('user_bots').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+      setBots(userBots || []);
+
+      // Fetch Templates
+      const { data: allTemplates } = await supabase.from('bot_templates').select('*');
+      if (allTemplates) {
+        setTemplates(allTemplates);
         
-        let initialTid = list[0]?.id;
-        const queryTid = searchParams.get('template')
-        if (queryTid && list.find(t => t.id === queryTid)) {
+        let initialTid = allTemplates[0]?.id;
+        const queryTid = searchParams.get('template');
+        if (queryTid && allTemplates.find(t => t.id === queryTid)) {
           initialTid = queryTid;
         }
         
         if(!selectedTemplate && initialTid) {
           setSelectedTemplate(initialTid)
-          const pt = list.find(t => t.id === initialTid)
+          const pt = allTemplates.find(t => t.id === initialTid)
           if(pt?.required_envs) initEnvVars(pt.required_envs)
         }
       }
-    });
+      setLoading(false);
+    };
 
-    setLoading(false)
+    fetchData();
+
+    const userChannel = supabase.channel('user-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` }, (payload) => {
+        setUserData(payload.new);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_bots', filter: `user_id=eq.${userId}` }, (payload) => {
+        fetchData();
+      }).subscribe();
+
     return () => {
-      unsubUser()
-      unsubTemplates()
+      supabase.removeChannel(userChannel);
     }
   }, [isLoaded, userId, user])
 
@@ -147,7 +150,7 @@ export default function DashboardPage() {
       if (!customStartCmd) return setError("Please provide a Start Command.");
     } else {
       // Check missing envs
-      const missing = Object.entries(envVars).filter(([k,v]) => !v.trim())
+      const missing = Object.entries(envVars).filter(([k,v]) => !(v as string).trim())
       if (missing.length > 0) {
         setError(`Please fill all required environment variables.`)
         return

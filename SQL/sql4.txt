@@ -1,0 +1,42 @@
+-- SQL/sql4.txt
+-- Render Services and Audit Logs
+
+-- Create Render Services table
+CREATE TABLE IF NOT EXISTS public.render_services (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+  service_id text NOT NULL,
+  name text,
+  url text,
+  status text DEFAULT 'deploying',
+  framework text,
+  env_vars jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+-- Enable RLS
+ALTER TABLE public.render_services ENABLE ROW LEVEL SECURITY;
+
+-- Users can view their own services
+CREATE POLICY "Users can view own services" ON public.render_services
+  FOR SELECT using (auth.uid() = user_id);
+
+-- Admins can view all services
+CREATE POLICY "Admin can view all services" ON public.render_services
+  FOR ALL using (auth.uid() IN (SELECT id FROM public.users WHERE role = 'admin'));
+
+-- Create Audit Logs table
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  admin_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  action text NOT NULL,
+  timestamp timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  details jsonb DEFAULT '{}'::jsonb
+);
+
+-- Enable RLS
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- Only admins can view audit logs
+CREATE POLICY "Admin view audit logs" ON public.audit_logs
+  FOR ALL using (auth.uid() IN (SELECT id FROM public.users WHERE role = 'admin'));

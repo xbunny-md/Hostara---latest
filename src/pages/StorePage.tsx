@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react"
 import { useAppAuth } from "../lib/auth"
 import { useConfigStore } from "../lib/store"
-import { db } from "../lib/firebase"
-import { ref, onValue } from "firebase/database"
+import { supabase } from "../lib/supabase"
 import { Star, Download, Zap } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { Button } from "../components/ui/button"
@@ -15,21 +14,18 @@ export default function StorePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const botsRef = ref(db, 'bot_templates')
-    const unsub = onValue(botsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val()
-        const botsList = Object.entries(data).map(([key, value]: any) => ({
-          id: key,
-          ...value
-        }))
-        setTemplates(botsList)
-      } else {
-        setTemplates([])
-      }
-      setLoading(false)
-    })
-    return () => unsub()
+    const fetchTemplates = async () => {
+      const { data } = await supabase.from('bot_templates').select('*');
+      if (data) setTemplates(data);
+      setLoading(false);
+    };
+    fetchTemplates();
+    
+    const channel = supabase.channel('store_templates').on('postgres_changes', { event: '*', schema: 'public', table: 'bot_templates' }, () => {
+      fetchTemplates();
+    }).subscribe();
+
+    return () => { supabase.removeChannel(channel) };
   }, [])
 
   if (!isLoaded || loading) {

@@ -1,0 +1,48 @@
+-- SQL/sql.txt
+-- Supabase Schema for Users and Bot Templates
+
+-- Create Users table
+CREATE TABLE IF NOT EXISTS public.users (
+  id uuid REFERENCES auth.users ON DELETE CASCADE,
+  email text,
+  phone text,
+  plan text DEFAULT 'trial',
+  balance numeric DEFAULT 0,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  bots jsonb DEFAULT '{}'::jsonb,
+  PRIMARY KEY (id)
+);
+
+-- Enable RLS
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+-- Allow users to read their own data
+CREATE POLICY "Users can view own data" ON public.users
+  FOR SELECT using (auth.uid() = id);
+
+-- Allow users to update their own data
+CREATE POLICY "Users can update own data" ON public.users
+  FOR UPDATE using (auth.uid() = id);
+
+-- Create Bot Templates table
+CREATE TABLE IF NOT EXISTS public.bot_templates (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  name text NOT NULL,
+  description text,
+  required_envs jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+-- Enable RLS
+ALTER TABLE public.bot_templates ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read access to templates
+CREATE POLICY "Public can view templates" ON public.bot_templates
+  FOR SELECT using (true);
+
+-- Insert sample templates
+INSERT INTO public.bot_templates (name, description, required_envs)
+VALUES 
+('Basic Bot', 'A simple starter bot', '["BOT_TOKEN"]'::jsonb),
+('Advanced Bot', 'Advanced AI agent', '["BOT_TOKEN", "OPENAI_API_KEY"]'::jsonb)
+ON CONFLICT DO NOTHING;

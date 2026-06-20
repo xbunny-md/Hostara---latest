@@ -1,12 +1,11 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext } from 'react';
 import { useAuth as useClerkAuth, useUser as useClerkUser, SignedIn as ClerkSignedIn, SignedOut as ClerkSignedOut, SignInButton as ClerkSignInButton, UserButton as ClerkUserButton } from '@clerk/clerk-react';
 import { auth as firebaseAuth } from './firebase';
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut as firebaseSignOut, updateProfile } from 'firebase/auth';
+import { supabase } from './supabase';
 import { useConfigStore } from './store';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { getDatabase, ref, set } from 'firebase/database';
-import { db } from './firebase';
 import { LogOut } from 'lucide-react';
 
 const AuthContext = createContext<any>(null);
@@ -18,7 +17,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
+  
+  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+  const [supabaseSession, setSupabaseSession] = useState<any>(null);
+  const [supabaseLoading, setSupabaseLoading] = useState(true);
 
+  // Firebase Auth
   useEffect(() => {
     if (!firebaseAuth) {
       setFirebaseLoading(false);
@@ -35,32 +39,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFirebaseLoading(false);
     }
   }, []);
+  
+  // Supabase Auth
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (!error) {
+        setSupabaseSession(session);
+        setSupabaseUser(session?.user ?? null);
+      }
+      setSupabaseLoading(false);
+    });
 
-  const isLoaded = clerkAuth.isLoaded && !firebaseLoading;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSupabaseSession(session);
+      setSupabaseUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const isLoaded = clerkAuth.isLoaded && !firebaseLoading && !supabaseLoading;
   
   // Either one is logged in
-  const isLoggedIn = !!clerkAuth.userId || !!firebaseUser;
+  const isLoggedIn = !!clerkAuth.userId || !!firebaseUser || !!supabaseUser;
   
-  const userId = clerkAuth.userId || firebaseUser?.uid;
+  const userId = clerkAuth.userId || firebaseUser?.uid || supabaseUser?.id;
   const user = clerkUser.user || (firebaseUser ? {
     primaryEmailAddress: { emailAddress: firebaseUser.email },
     emailAddresses: [{ emailAddress: firebaseUser.email }],
+    publicMetadata: { role: undefined }
+  } : supabaseUser ? {
+    primaryEmailAddress: { emailAddress: supabaseUser.email },
+    emailAddresses: [{ emailAddress: supabaseUser.email }],
     publicMetadata: { role: undefined }
   } : null);
   
   const getToken = async () => {
     if (clerkAuth.userId) return await clerkAuth.getToken();
     if (firebaseUser) return await firebaseUser.getIdToken();
+    if (supabaseSession) return supabaseSession.access_token;
     return null;
   };
 
   const signOut = async () => {
     if (clerkAuth.userId) await clerkAuth.signOut();
     if (firebaseUser) await firebaseSignOut(firebaseAuth);
+    if (supabaseUser) await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ isLoaded, isLoggedIn, userId, user, getToken, signOut, isClerk: !!clerkAuth.userId, isFirebase: !!firebaseUser }}>
+    <AuthContext.Provider value={{ isLoaded, isLoggedIn, userId, user, getToken, signOut, isClerk: !!clerkAuth.userId, isFirebase: !!firebaseUser, isSupabase: !!supabaseUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -92,18 +122,47 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const { config } = useConfigStore();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     
-    if (!firebaseAuth) {
-      setError("Authentication is currently under moderation or services are temporarily unavailable.");
-      setLoading(false);
-      return;
-    }
-    
     try {
+      if (config.auth_mode === 'supabase') {
+        if (isLogin) {
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+        } else {
+          if (password !== confirmPassword) throw new Error("Passwords do not match");
+          if (!name || !phone) throw new Error("Please fill in all fields");
+          const { data: authData, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { data: { name, phone } }
+          });
+          if (error) throw error;
+          // Optionally add to users table if trigger doesn't exist
+          if (authData?.user) {
+            await supabase.from('users').upsert({
+               id: authData.user.id,
+               email,
+               name,
+               phone,
+               role: 'user',
+               plan: 'trial'
+            });
+          }
+        }
+        onClose();
+        return;
+      }
+      
+      // Fallback to Firebase if not using Supabase
+      if (!firebaseAuth) {
+        throw new Error("Authentication is currently under moderation or services are temporarily unavailable.");
+      }
+      
       if (isLogin) {
         await signInWithEmailAndPassword(firebaseAuth, email, password);
       } else {
@@ -111,12 +170,12 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
         if (!name || !phone) throw new Error("Please fill in all fields");
         const cred = await createUserWithEmailAndPassword(firebaseAuth, email, password);
         await updateProfile(cred.user, { displayName: name });
-        await set(ref(db, `users/${cred.user.uid}`), {
-          email,
-          phone,
-          name,
-          role: "user",
-          created_at: Date.now()
+        await supabase.from('users').upsert({
+           id: cred.user.uid,
+           email,
+           phone,
+           name,
+           role: 'user',
         });
       }
       onClose();
@@ -124,7 +183,7 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
       if (err.message?.includes("api-key-not-valid") || err.code?.includes("api-key")) {
         setError("Authentication is currently under moderation. Host services are not available right now.");
       } else {
-        setError(err.message);
+        setError(err.message || String(err));
       }
     } finally {
       setLoading(false);

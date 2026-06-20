@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { db } from '../../lib/firebase'
-import { ref, onValue, set, remove, update } from 'firebase/database'
+import { supabase } from '../../lib/supabase'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Trash, Edit, Save, X, Ban, MessageSquare, Gift } from 'lucide-react'
@@ -24,16 +23,18 @@ export function UsersAdmin() {
   })
 
   useEffect(() => {
-    const unsub = onValue(ref(db, 'users'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val()
-        setUsers(Object.entries(data).map(([key, val]: any) => ({ id: key, ...val })))
-      } else {
-        setUsers([])
-      }
-      setLoading(false)
-    })
-    return () => unsub()
+    const fetchUsers = async () => {
+      const { data } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (data) setUsers(data);
+      setLoading(false);
+    }
+    fetchUsers();
+
+    const channel = supabase.channel('users_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
+       fetchUsers();
+    }).subscribe();
+
+    return () => { supabase.removeChannel(channel) };
   }, [])
 
   const handleEdit = (user: any) => {
@@ -50,13 +51,13 @@ export function UsersAdmin() {
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this user? ALL THEIR DATA WILL BE LOST.')) {
-      await remove(ref(db, `users/${id}`))
+      await supabase.from('users').delete().eq('id', id);
     }
   }
 
   const handleSuspend = async (user: any) => {
-    const isSuspended = !user.suspended
-    await update(ref(db, `users/${user.id}`), { suspended: isSuspended })
+    const isSuspended = !user.suspended;
+    await supabase.from('users').update({ suspended: isSuspended }).eq('id', user.id);
   }
 
   const handleSendGift = async (user: any) => {
@@ -65,28 +66,26 @@ export function UsersAdmin() {
     const amount = Number(amountStr)
     if (isNaN(amount) || amount <= 0) return alert('Invalid amount')
     
-    await update(ref(db, `users/${user.id}`), { balance: (user.balance || 0) + amount })
+    await supabase.from('users').update({ balance: (user.balance || 0) + amount }).eq('id', user.id);
     alert(`Gifted ${amount} ${currencySymbol} to ${user.email}`)
   }
 
   const handleWarn = async (user: any) => {
     const warning = prompt(`Enter warning message for ${user.email}:`)
     if (!warning) return
-    
-    // In a real app we'd trigger an email/notification, checking our scope we can just save it or show success
     alert(`Warning sent to ${user.email}. (Simulated)`)
   }
 
   const handleSave = async () => {
     if (editingId) {
-      await update(ref(db, `users/${editingId}`), {
+      await supabase.from('users').update({
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
         balance: Number(formData.balance),
         role: formData.role,
         suspended: formData.suspended
-      })
+      }).eq('id', editingId);
     }
     setEditingId(null)
   }

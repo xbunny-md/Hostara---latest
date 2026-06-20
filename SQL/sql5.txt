@@ -1,0 +1,31 @@
+-- SQL/sql5.txt
+-- User Bots
+
+-- Add role to users if missing
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role text DEFAULT 'user';
+
+-- Create User Bots table (often stored in JSONB in users, but better as a separate table)
+CREATE TABLE IF NOT EXISTS public.user_bots (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+  template_id uuid REFERENCES public.bot_templates(id),
+  name text,
+  status text DEFAULT 'offline',
+  env_vars jsonb DEFAULT '{}'::jsonb,
+  custom_repo_url text,
+  custom_build_cmd text,
+  custom_start_cmd text,
+  render_service_id text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+-- Enable RLS
+ALTER TABLE public.user_bots ENABLE ROW LEVEL SECURITY;
+
+-- Users can manage their own bots
+CREATE POLICY "Users can manage own bots" ON public.user_bots
+  FOR ALL using (auth.uid() = user_id);
+
+-- Admins can manage all bots
+CREATE POLICY "Admin can manage all bots" ON public.user_bots
+  FOR ALL using (auth.uid() IN (SELECT id FROM public.users WHERE role = 'admin'));

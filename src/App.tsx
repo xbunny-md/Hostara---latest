@@ -3,8 +3,7 @@ import { Home, Bot, ShoppingBag, Wallet, ShieldAlert, Cpu } from "lucide-react"
 import { useEffect, useState } from "react"
 import axios from "axios"
 import { useConfigStore } from "./lib/store"
-import { db } from "./lib/firebase"
-import { ref, onValue } from "firebase/database"
+import { supabase } from "./lib/supabase"
 import { useAppAuth, AppSignedIn, AppSignedOut, AppSignInButton, AppUserButton, AuthProvider } from "./lib/auth"
 
 import HomePage from "./pages/HomePage"
@@ -40,13 +39,17 @@ function MainLayout() {
 
   useEffect(() => {
     if (userId) {
-      const userRef = ref(db, `users/${userId}`);
-      const unsub = onValue(userRef, (snapshot) => {
-        if (snapshot.exists()) {
-          setBalance(snapshot.val().balance || 0);
-        }
-      });
-      return () => unsub();
+      const fetchBalance = async () => {
+         const { data } = await supabase.from('users').select('balance').eq('id', userId).single();
+         if (data) setBalance(data.balance || 0);
+      };
+      fetchBalance();
+      
+      const channel = supabase.channel('app_user_balance').on('postgres_changes', { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` }, () => {
+        fetchBalance();
+      }).subscribe();
+      
+      return () => { supabase.removeChannel(channel) };
     }
   }, [userId])
 

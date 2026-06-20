@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react"
 import { useAppAuth } from "../lib/auth"
 import { useConfigStore } from "../lib/store"
-import { db } from "../lib/firebase"
-import { ref, onValue } from "firebase/database"
+import { supabase } from "../lib/supabase"
 import { Wallet, CreditCard, ArrowRight, History, Gift } from "lucide-react"
 import { Button } from "../components/ui/button"
 import axios from "axios"
@@ -16,13 +15,17 @@ export default function WalletPage() {
   
   useEffect(() => {
     if (userId) {
-      const userRef = ref(db, `users/${userId}`);
-      const unsub = onValue(userRef, (snapshot) => {
-        if (snapshot.exists()) {
-          setBalance(snapshot.val().balance || 0);
-        }
-      });
-      return () => unsub();
+      const fetchBalance = async () => {
+         const { data } = await supabase.from('users').select('balance').eq('id', userId).single();
+         if (data) setBalance(data.balance || 0);
+      };
+      fetchBalance();
+      
+      const channel = supabase.channel('wallet_user_balance').on('postgres_changes', { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` }, () => {
+        fetchBalance();
+      }).subscribe();
+      
+      return () => { supabase.removeChannel(channel) };
     }
   }, [userId])
 
