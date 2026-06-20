@@ -1,0 +1,27 @@
+-- SQL/sql6.txt
+-- Templates & Bots Expansion
+
+-- Bot Templates
+ALTER TABLE public.bot_templates 
+ADD COLUMN IF NOT EXISTS repo_url text,
+ADD COLUMN IF NOT EXISTS photo_url text,
+ADD COLUMN IF NOT EXISTS build_cmd text,
+ADD COLUMN IF NOT EXISTS start_cmd text,
+ADD COLUMN IF NOT EXISTS cost numeric DEFAULT 0;
+
+-- Admin UptimeRobot Keys
+CREATE TABLE IF NOT EXISTS public.admin_keys (
+  id text PRIMARY KEY DEFAULT 'default',
+  uptimerobot_api_key text,
+  render_api_key text,
+  owner_id text,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.admin_keys ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admin manage admin_keys" ON public.admin_keys
+  FOR ALL using (auth.uid() IN (SELECT id FROM public.users WHERE role = 'admin'));
+
+-- Default insert
+INSERT INTO public.admin_keys (id) VALUES ('default') ON CONFLICT DO NOTHING;

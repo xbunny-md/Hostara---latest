@@ -8,6 +8,14 @@ import { createClerkClient } from "@clerk/express";
 import axios from "axios";
 import { createServer as createViteServer } from "vite";
 import _firebaseAdmin from "firebase-admin";
+import { createClient } from "@supabase/supabase-js";
+
+let supabase: ReturnType<typeof createClient> | null = null;
+if (process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY) {
+  // Use service role key if available for backend, fallback to anon
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  supabase = createClient(process.env.VITE_SUPABASE_URL, key);
+}
 
 // Normalize admin import to handle both ESM and CJS gracefully
 const admin = (_firebaseAdmin as any).apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
@@ -61,10 +69,15 @@ const unifiedRequireAuth = async (req: express.Request, res: express.Response, n
   }
 
   // 3. Try Supabase Auth Token
-  if (authHeader && authHeader.startsWith("Bearer ")) {
+  if (authHeader && authHeader.startsWith("Bearer ") && supabase) {
     const token = authHeader.split("Bearer ")[1];
-    // Normally you'd use supabase.auth.getUser() but we don't have supabase mounted in server.ts
-    // In a real app we'd verify the JWT properly. Here we can simulate it or reject if not available
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (user && !error) {
+        (req as any).auth = { userId: user.id };
+        return next();
+      }
+    } catch(e) {}
   }
 
   return res.status(401).json({ error: "Unauthorized" });
@@ -73,7 +86,21 @@ const unifiedRequireAuth = async (req: express.Request, res: express.Response, n
 // Unified Get User
 const getUnifiedUser = async (userId: string) => {
   try {
-    // Try Clerk first
+    // Try Supabase first
+    if (supabase) {
+      const { data, error } = await supabase.from('users').select('email, role, name').eq('id', userId).single();
+      if (data && !error) {
+        return {
+          userId,
+          email: data.email,
+          role: data.role
+        };
+      }
+    }
+  } catch (e) {}
+
+  try {
+    // Try Clerk second
     const user = await clerkClient.users.getUser(userId);
     return {
       userId: user.id,
@@ -84,13 +111,18 @@ const getUnifiedUser = async (userId: string) => {
     // Fallback to Firebase realtime database role
     const dbUrl = process.env.FIREBASE_DATABASE_URL;
     const secret = process.env.FIREBASE_DB_SECRET;
-    const res = await axios.get(`${dbUrl}/users/${userId}.json${secret ? `?auth=${secret}` : ''}`);
-    const userData = res.data || {};
-    return {
-      userId,
-      email: userData.email,
-      role: userData.role
-    };
+    if (dbUrl) {
+      try {
+        const res = await axios.get(`${dbUrl}/users/${userId}.json${secret ? `?auth=${secret}` : ''}`);
+        const userData = res.data || {};
+        return {
+          userId,
+          email: userData.email,
+          role: userData.role
+        };
+      } catch (err) {}
+    }
+    return { userId, email: null, role: null };
   }
 };
 
@@ -116,16 +148,27 @@ async function startServer() {
   // Helper to fetch system config (simulates firebase-admin)
   const fetchSystemConfig = async () => {
     try {
-      const res = await axios.get(getDbUrl('system_config'));
-      return res.data || {};
+      if (supabase) {
+        const { data, error } = await supabase.from('system_config').select('*').eq('id', 'default').single();
+        if (data && !error) return data;
+      }
+      if (process.env.FIREBASE_DATABASE_URL) {
+        const res = await axios.get(getDbUrl('system_config'));
+        return res.data || {};
+      }
+      return {};
     } catch (e) {
-      console.error("Failed to fetch system config. Check Firebase rules or provide FIREBASE_DB_SECRET.", e);
+      console.error("Failed to fetch system config.", e);
       return {};
     }
   };
 
   const updateSystemConfig = async (data: any) => {
-    await axios.patch(getDbUrl('system_config'), data);
+    if (supabase) {
+      await supabase.from('system_config').upsert({ id: 'default', ...data });
+    } else if (process.env.FIREBASE_DATABASE_URL) {
+      await axios.patch(getDbUrl('system_config'), data);
+    }
   };
 
   // 1. Setup First Admin
@@ -209,11 +252,32 @@ async function startServer() {
       const auth = (req as any).auth;
       const { templateId, name, envVars, customRepoUrl, customBuildCmd, customStartCmd } = req.body;
       const userId = auth.userId;
-      const config = await fetchSystemConfig();
       
-      // Get user profile to check balance
-      const userRes = await axios.get(getDbUrl(`users/${userId}`));
-      const userData = userRes.data || {};
+      let userData: any = {};
+      let template: any = null;
+      let renderAccounts: any = {};
+
+      if (supabase) {
+        const { data: uData } = await supabase.from('users').select('*').eq('id', userId).single();
+        if (uData) userData = uData;
+        
+        if (templateId !== 'custom') {
+           const { data: tData } = await supabase.from('bot_templates').select('*').eq('id', templateId).single();
+           template = tData;
+        }
+
+        const { data: rData } = await supabase.from('admin_keys').select('*').eq('id', 'default').single();
+        if (rData) renderAccounts = rData;
+      } else {
+        const userRes = await axios.get(getDbUrl(`users/${userId}`));
+        userData = userRes.data || {};
+        if (templateId !== 'custom') {
+          const templateRes = await axios.get(getDbUrl(`bot_templates/${templateId}`));
+          template = templateRes.data;
+        }
+        const renderRes = await axios.get(getDbUrl('render_accounts'));
+        renderAccounts = renderRes.data || {};
+      }
 
       let templatePrice = 0;
       let repoUrl: string;
@@ -221,17 +285,15 @@ async function startServer() {
       let startCmd: string;
 
       if (templateId === 'custom') {
-        templatePrice = 3500; // Customizable in real deployment
+        templatePrice = 3500;
         repoUrl = customRepoUrl;
         buildCmd = customBuildCmd || "";
         startCmd = customStartCmd || "npm start";
         if (!repoUrl) return res.status(400).json({ error: "No custom repo URL provided." });
       } else {
-        const templateRes = await axios.get(getDbUrl(`bot_templates/${templateId}`));
-        const template = templateRes.data;
         if (!template) return res.status(404).json({ error: "Template not found" });
         templatePrice = template.cost || template.price_extra || 0;
-        repoUrl = template.github_url;
+        repoUrl = template.github_url || template.repo_url;
         buildCmd = template.build_cmd || template.build_command || "npm install";
         startCmd = template.start_cmd || template.start_command || "npm start";
       }
@@ -240,27 +302,27 @@ async function startServer() {
          return res.status(400).json({ error: `Insufficient balance. Requires ${templatePrice}.` });
       }
 
-      // Get render accounts
-      const renderRes = await axios.get(getDbUrl('render_accounts'));
-      const renderAccounts = renderRes.data || {};
-      
-      let bestAccountKey = null;
-      let minBots = Infinity;
       let renderApiKey = null;
-      
-      for (const [key, account] of Object.entries(renderAccounts) as any) {
-        if (!account.suspended && account.bots_count < account.limit && account.bots_count < minBots) {
-          minBots = account.bots_count;
-          bestAccountKey = key;
-          renderApiKey = account.api_key;
+      let ownerId = null;
+
+      if (supabase) {
+        renderApiKey = renderAccounts.render_api_key;
+        ownerId = renderAccounts.owner_id;
+      } else {
+        let minBots = Infinity;
+        for (const [key, account] of Object.entries(renderAccounts) as any) {
+          if (!account.suspended && account.bots_count < account.limit && account.bots_count < minBots) {
+            minBots = account.bots_count;
+            renderApiKey = account.api_key;
+          }
         }
       }
       
-      if (!renderApiKey) return res.status(500).json({ error: "No Render accounts available in pool." });
+      if (!renderApiKey) return res.status(500).json({ error: "No Render API keys available." });
 
       // Deploy to Render
-      const envs = Object.entries(envVars).map(([key, value]) => ({ key, value }));
-      const renderPayload = {
+      const envs = Object.entries(envVars || {}).map(([key, value]) => ({ key, value }));
+      const renderPayload: any = {
         type: "web_service",
         name: `bot-${Date.now().toString().slice(-6)}`,
         repo: repoUrl,
@@ -270,46 +332,67 @@ async function startServer() {
         startCommand: startCmd
       };
 
+      if (ownerId && ownerId.trim().length > 0) {
+        renderPayload.ownerId = ownerId;
+      }
+
       const renderApiRes = await axios.post("https://api.render.com/v1/services", renderPayload, {
-        headers: { "Authorization": `Bearer ${renderApiKey}`, "Content-Type": "application/json" }
+        headers: { "Authorization": `Bearer ${renderApiKey}`, "Content-Type": "application/json", "Accept": "application/json" }
       });
       
       const service = renderApiRes.data;
-      const serviceUrl = service.service.serviceDetails.url;
+      const serviceUrl = service.service? service.service.serviceDetails.url : service.serviceDetails?.url || "";
+      const srvId = service.service? service.service.id : service.id;
+      const sname = service.service? service.service.name : service.name;
 
       // UptimeRobot Monitor
-      const uptimeApiKey = config.api_keys?.uptimerobot;
-      if (uptimeApiKey) {
-        await axios.post("https://api.uptimerobot.com/v2/newMonitor", {
-          api_key: uptimeApiKey,
-          format: "json",
-          type: 1,
-          url: serviceUrl,
-          friendly_name: service.service.name
-        }).catch(() => {});
+      let uptimeApiKey = null;
+      if (supabase) {
+        uptimeApiKey = renderAccounts.uptimerobot_api_key;
       }
 
-      // Update Render Account
-      await axios.patch(getDbUrl(`render_accounts/${bestAccountKey}`), { bots_count: minBots + 1 });
+      if (uptimeApiKey) {
+        try {
+          await axios.post("https://api.uptimerobot.com/v2/newMonitor", {
+            api_key: uptimeApiKey,
+            format: "json",
+            type: 1,
+            url: serviceUrl,
+            friendly_name: sname || "Bot Monitor"
+          });
+        } catch(err) {
+          console.error("Failed to add uptime monitor");
+        }
+      }
 
       // Build Bot Data
       const pushId = `srv-${Date.now()}`;
       const botData = {
-        name: name || service.service.name,
+        name: name || sname,
         template_id: templateId,
-        render_service_id: service.service.id,
+        render_service_id: srvId,
         render_url: serviceUrl,
         status: "deploying",
         env_vars: envVars,
         created_at: Date.now()
       };
 
-      // Subtract balance and save bot simultaneously
       const updatedBalance = (userData.balance || 0) - templatePrice;
-      await axios.patch(getDbUrl(`users/${userId}`), {
-        balance: updatedBalance
-      });
-      await axios.put(getDbUrl(`users/${userId}/bots/${pushId}`), botData);
+
+      if (supabase) {
+        await supabase.from('users').update({ balance: updatedBalance }).eq('id', userId);
+        await supabase.from('user_bots').insert({
+          id: pushId,
+          user_id: userId,
+          ...botData
+        });
+        if (templateId !== 'custom') {
+          await supabase.from('bot_templates').update({ downloads: (template.downloads || 0) + 1 }).eq('id', templateId);
+        }
+      } else {
+        await axios.patch(getDbUrl(`users/${userId}`), { balance: updatedBalance });
+        await axios.put(getDbUrl(`users/${userId}/bots/${pushId}`), botData);
+      }
 
       res.json({ url: serviceUrl, pushId, remaining_balance: updatedBalance });
 
@@ -322,14 +405,17 @@ async function startServer() {
   // 5. Proxy Render logs (Basic Implementation)
   app.get("/api/bot/:botId/logs", unifiedRequireAuth, async (req, res) => {
     try {
-      const auth = (req as any).auth;
       const { botId } = req.params;
-      const userId = auth.userId;
+      let renderApiKey = null;
       
-      // Need Render API key, assume we grab it from config or accounts pool (simplified)
-      const renderRes = await axios.get(getDbUrl('render_accounts'));
-      const renderAccounts = renderRes.data || {};
-      const renderApiKey = (Object.values(renderAccounts)[0] as any)?.api_key;
+      if (supabase) {
+        const { data } = await supabase.from('admin_keys').select('*').eq('id', 'default').single();
+        if (data) renderApiKey = data.render_api_key;
+      } else {
+        const renderRes = await axios.get(getDbUrl('render_accounts'));
+        const renderAccounts = renderRes.data || {};
+        renderApiKey = (Object.values(renderAccounts)[0] as any)?.api_key;
+      }
       
       if (!renderApiKey) throw new Error("API Key missing");
       
@@ -347,8 +433,15 @@ async function startServer() {
     try {
       const auth = (req as any).auth;
       const userId = auth.userId;
-      const userRes = await axios.get(getDbUrl(`users/${userId}`));
-      const userData = userRes.data || {};
+
+      let userData: any = {};
+      if (supabase) {
+         const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+         if (data) userData = data;
+      } else {
+         const userRes = await axios.get(getDbUrl(`users/${userId}`));
+         userData = userRes.data || {};
+      }
 
       const now = Date.now();
       const lastClaim = userData.last_bonus_claim || 0;
@@ -359,10 +452,11 @@ async function startServer() {
       }
 
       const newBalance = (userData.balance || 0) + 500;
-      await axios.patch(getDbUrl(`users/${userId}`), {
-        balance: newBalance,
-        last_bonus_claim: now
-      });
+      if (supabase) {
+         await supabase.from('users').update({ balance: newBalance, last_bonus_claim: now }).eq('id', userId);
+      } else {
+         await axios.patch(getDbUrl(`users/${userId}`), { balance: newBalance, last_bonus_claim: now });
+      }
 
       // Optional: Add to transactions log if we build that later
 

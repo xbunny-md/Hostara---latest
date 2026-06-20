@@ -1,0 +1,8 @@
+-- SQL/sql8.txt
+-- System config additional policies
+
+ALTER TABLE public.system_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public read system_config" ON public.system_config;
+CREATE POLICY "Public read system_config" ON public.system_config
+  FOR SELECT using (true);

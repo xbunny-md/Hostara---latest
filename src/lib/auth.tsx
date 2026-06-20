@@ -123,6 +123,15 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
 
   const { config } = useConfigStore();
+  const handleProviderSignIn = async (provider: 'google' | 'github') => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({ provider });
+      if (error) throw error;
+    } catch (err: any) {
+      setError(err.message || String(err));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -225,10 +234,23 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
           
-          <Button type="submit" className="w-full bg-[var(--primary,#8B5CF6)] hover:opacity-90" disabled={loading}>
+          <Button type="submit" className="w-full bg-[var(--primary,#8B5CF6)] hover:opacity-90 text-white" disabled={loading}>
             {loading ? "Processing..." : (isLogin ? "Sign In" : "Sign Up")}
           </Button>
         </form>
+
+        <div className="my-4 flex items-center before:mt-0.5 before:flex-1 before:border-t before:border-zinc-700 after:mt-0.5 after:flex-1 after:border-t after:border-zinc-700">
+          <p className="mx-4 mb-0 text-center text-xs text-zinc-500 uppercase tracking-wider">Or continue with</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <Button type="button" variant="outline" className="w-full" onClick={() => handleProviderSignIn('google')} disabled={loading}>
+            Google
+          </Button>
+          <Button type="button" variant="outline" className="w-full" onClick={() => handleProviderSignIn('github')} disabled={loading}>
+            GitHub
+          </Button>
+        </div>
         
         <div className="mt-4 text-center">
           <button type="button" onClick={() => setIsLogin(!isLogin)} className="text-sm text-zinc-400 hover:text-white" disabled={loading}>

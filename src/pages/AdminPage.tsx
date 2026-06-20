@@ -9,6 +9,8 @@ import { BotTemplatesAdmin } from "./admin/BotTemplatesAdmin"
 import { UsersAdmin } from "./admin/UsersAdmin"
 import { BotsAdmin } from "./admin/BotsAdmin"
 
+import { IntegrationsAdmin } from "./admin/IntegrationsAdmin"
+
 export default function AdminPage() {
   const { isLoaded, user, getToken } = useAppAuth()
   const { config, fetchConfig } = useConfigStore()
@@ -72,11 +74,11 @@ export default function AdminPage() {
         <h2 className="text-xs tracking-wider text-zinc-500 uppercase font-semibold mb-4 px-3">Admin Panel</h2>
         {[
           { id: 'config', label: 'System Config', icon: Settings },
-          { id: 'render', label: 'Render Pool', icon: Server },
+          { id: 'integrations', label: 'Integrations', icon: Server },
           { id: 'templates', label: 'Bot Templates', icon: Bot },
           { id: 'users', label: 'Users', icon: Users },
-          { id: 'payments', label: 'Payments', icon: CreditCard },
-          { id: 'audit', label: 'Audit Logs', icon: Activity }
+          { id: 'bots', label: 'Deployed Bots', icon: Activity },
+          { id: 'payments', label: 'Payments', icon: CreditCard }
         ].map(tab => (
           <button
             key={tab.id}
@@ -148,7 +150,8 @@ export default function AdminPage() {
                       onChange={e => setLocalConfig({...localConfig, auth_mode: e.target.value})}
                       className="bg-zinc-900 border border-zinc-700 text-sm rounded-md px-2 py-1 text-white"
                     >
-                      <option value="normal">Normal Auth (Email/Pass)</option>
+                      <option value="supabase">Supabase Auth (Recommended)</option>
+                      <option value="normal">Firebase Auth</option>
                       <option value="clerk">Clerk Auth</option>
                     </select>
                   </div>
@@ -177,8 +180,9 @@ export default function AdminPage() {
           {activeTab === 'templates' && <BotTemplatesAdmin />}
           {activeTab === 'users' && <UsersAdmin />}
           {activeTab === 'bots' && <BotsAdmin />}
+          {activeTab === 'integrations' && <IntegrationsAdmin />}
 
-          {activeTab !== 'config' && activeTab !== 'templates' && activeTab !== 'users' && activeTab !== 'bots' && (
+          {activeTab !== 'config' && activeTab !== 'templates' && activeTab !== 'users' && activeTab !== 'bots' && activeTab !== 'integrations' && (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-zinc-500 space-y-4">
               <Settings className="h-12 w-12 opacity-20" />
               <p>The {activeTab} management panel is ready for integration.</p>

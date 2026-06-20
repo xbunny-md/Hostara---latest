@@ -1,0 +1,13 @@
+-- SQL/sql9.txt
+-- Future enhancements for logs
+
+CREATE TABLE IF NOT EXISTS public.server_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bot_id text REFERENCES public.user_bots(id) ON DELETE CASCADE,
+    log text NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.server_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users view own logs" ON public.server_logs
+  FOR SELECT using (auth.uid() IN (SELECT user_id FROM public.user_bots WHERE id = bot_id));

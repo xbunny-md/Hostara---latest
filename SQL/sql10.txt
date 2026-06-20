@@ -1,0 +1,14 @@
+-- SQL/sql10.txt
+-- Future analytics
+
+CREATE TABLE IF NOT EXISTS public.analytics_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id text,
+    event_type text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admins read analytics" ON public.analytics_events
+  FOR SELECT using (auth.uid() IN (SELECT id FROM public.users WHERE role = 'admin'));

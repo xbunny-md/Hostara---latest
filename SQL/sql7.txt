@@ -1,0 +1,15 @@
+-- SQL/sql7.txt
+-- Render integration triggers
+
+CREATE OR REPLACE FUNCTION update_bot_status() RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at := timezone('utc'::text, now());
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_bot_status ON public.user_bots;
+CREATE TRIGGER trigger_update_bot_status
+BEFORE UPDATE ON public.user_bots
+FOR EACH ROW
+EXECUTE FUNCTION update_bot_status();
