@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Hostara powered by SwiftCloud",
+  "description": "Secure WhatsApp bot hosting platform featuring automated Render deployments, Firebase Realtime Database, Clerk authentication, and integrated bot monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
