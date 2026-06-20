@@ -20,6 +20,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseLoading, setFirebaseLoading] = useState(true);
 
   useEffect(() => {
+    if (!firebaseAuth) {
+      setFirebaseLoading(false);
+      return;
+    }
     try {
       const unsub = onAuthStateChanged(firebaseAuth, (user) => {
         setFirebaseUser(user);
@@ -93,6 +97,12 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
     setError("");
     setLoading(true);
     
+    if (!firebaseAuth) {
+      setError("Authentication is currently under moderation or services are temporarily unavailable.");
+      setLoading(false);
+      return;
+    }
+    
     try {
       if (isLogin) {
         await signInWithEmailAndPassword(firebaseAuth, email, password);
@@ -111,7 +121,11 @@ function CustomAuthModal({ onClose }: { onClose: () => void }) {
       }
       onClose();
     } catch (err: any) {
-      setError(err.message);
+      if (err.message?.includes("api-key-not-valid") || err.code?.includes("api-key")) {
+        setError("Authentication is currently under moderation. Host services are not available right now.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
