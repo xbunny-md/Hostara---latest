@@ -13,7 +13,17 @@ import _firebaseAdmin from "firebase-admin";
 const admin = _firebaseAdmin.apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
 
 // Initialize Firebase Admin if available (fallbacks for restricted environments)
-if (!admin.apps?.length) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT && !admin.apps?.length) {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+  } catch (err) {
+    console.error("Firebase Admin initialization failed.", err);
+  }
+} else if (!admin.apps?.length) {
   try {
     admin.initializeApp({
       databaseURL: process.env.FIREBASE_DATABASE_URL

@@ -6,7 +6,7 @@ import App from './App.tsx';
 import './index.css';
 
 // Import your publishable key
-const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "pk_test_Y3VyaW91cy10dW5hLTY2LmNsZXJrLmFjY291bnRzLmRldiQ";
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || "pk_test_Y3VyaW91cy10dW5hLTY2LmNsZXJrLmFjY291bnRzLmRldiQ";
 
 if (!PUBLISHABLE_KEY) {
   throw new Error("Missing Publishable Key");
