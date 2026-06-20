@@ -6,6 +6,8 @@ import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { Save, Settings, Server, Users, Bot, CreditCard, Activity } from "lucide-react"
 import { BotTemplatesAdmin } from "./admin/BotTemplatesAdmin"
+import { UsersAdmin } from "./admin/UsersAdmin"
+import { BotsAdmin } from "./admin/BotsAdmin"
 
 export default function AdminPage() {
   const { isLoaded, user, getToken } = useAppAuth()
@@ -114,6 +116,10 @@ export default function AdminPage() {
                     <Input value={localConfig.app_tagline || ''} onChange={e => setLocalConfig({...localConfig, app_tagline: e.target.value})} />
                   </div>
                   <div>
+                    <label className="text-xs text-zinc-400">Currency Symbol</label>
+                    <Input value={localConfig.currency_symbol || 'TZS'} onChange={e => setLocalConfig({...localConfig, currency_symbol: e.target.value})} placeholder="TZS, $, etc." />
+                  </div>
+                  <div>
                     <label className="text-xs text-zinc-400">Primary Color (Hex)</label>
                     <div className="flex gap-2">
                       <Input type="color" className="w-12 h-10 p-1" value={localConfig.primary_color || '#8B5CF6'} onChange={e => setLocalConfig({...localConfig, primary_color: e.target.value})} />
@@ -169,8 +175,10 @@ export default function AdminPage() {
           )}
 
           {activeTab === 'templates' && <BotTemplatesAdmin />}
+          {activeTab === 'users' && <UsersAdmin />}
+          {activeTab === 'bots' && <BotsAdmin />}
 
-          {activeTab !== 'config' && activeTab !== 'templates' && (
+          {activeTab !== 'config' && activeTab !== 'templates' && activeTab !== 'users' && activeTab !== 'bots' && (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-zinc-500 space-y-4">
               <Settings className="h-12 w-12 opacity-20" />
               <p>The {activeTab} management panel is ready for integration.</p>

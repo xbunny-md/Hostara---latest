@@ -4,8 +4,11 @@ import { ref, onValue, set, push, remove } from 'firebase/database'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Plus, Trash, Edit, X, Save } from 'lucide-react'
+import { useConfigStore } from '../../lib/store'
 
 export function BotTemplatesAdmin() {
+  const { config } = useConfigStore()
+  const currencySymbol = config.currency_symbol || 'TZS'
   const [templates, setTemplates] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   
@@ -15,6 +18,7 @@ export function BotTemplatesAdmin() {
     category: '',
     cost: '',
     github_url: '',
+    pairing_url: '',
     image_url: '',
     required_envs: '',
     build_cmd: '',
@@ -41,6 +45,7 @@ export function BotTemplatesAdmin() {
       category: template.category || '',
       cost: template.cost || '',
       github_url: template.github_url || '',
+      pairing_url: template.pairing_url || '',
       image_url: template.image_url || '',
       required_envs: template.required_envs ? template.required_envs.join(', ') : '',
       build_cmd: template.build_cmd || '',
@@ -70,12 +75,12 @@ export function BotTemplatesAdmin() {
     }
     
     setEditingId(null)
-    setFormData({ name: '', category: '', cost: '', github_url: '', image_url: '', required_envs: '', build_cmd: '', start_cmd: '', rating: '5.0' })
+    setFormData({ name: '', category: '', cost: '', github_url: '', pairing_url: '', image_url: '', required_envs: '', build_cmd: '', start_cmd: '', rating: '5.0' })
   }
 
   const handleCancel = () => {
     setEditingId(null)
-    setFormData({ name: '', category: '', cost: '', github_url: '', image_url: '', required_envs: '', build_cmd: '', start_cmd: '', rating: '5.0' })
+    setFormData({ name: '', category: '', cost: '', github_url: '', pairing_url: '', image_url: '', required_envs: '', build_cmd: '', start_cmd: '', rating: '5.0' })
   }
 
   return (
@@ -105,7 +110,7 @@ export function BotTemplatesAdmin() {
               <Input value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} placeholder="e.g. Silent, Weak" />
             </div>
             <div>
-              <label className="text-xs text-zinc-400">Cost (VEX)</label>
+              <label className="text-xs text-zinc-400">Cost ({currencySymbol})</label>
               <Input type="number" value={formData.cost} onChange={e => setFormData({...formData, cost: e.target.value})} placeholder="260" />
             </div>
             <div>
@@ -115,6 +120,10 @@ export function BotTemplatesAdmin() {
             <div className="md:col-span-2">
               <label className="text-xs text-zinc-400">Image URL (IMGBB, Imgur, etc.)</label>
               <Input value={formData.image_url} onChange={e => setFormData({...formData, image_url: e.target.value})} placeholder="https://i.ibb.co/..." />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-zinc-400">Pairing Site URL</label>
+              <Input value={formData.pairing_url} onChange={e => setFormData({...formData, pairing_url: e.target.value})} placeholder="https://pair.website.com" />
             </div>
             <div className="md:col-span-2">
               <label className="text-xs text-zinc-400">GitHub Repository URL</label>
@@ -158,7 +167,7 @@ export function BotTemplatesAdmin() {
                 <div className="min-w-0 flex-1">
                   <h4 className="font-bold truncate text-white">{tmp.name}</h4>
                   <p className="text-xs text-zinc-400 mb-1">{tmp.category || 'Uncategorized'}</p>
-                  <p className="text-xs font-mono text-[var(--primary,#8B5CF6)]">{tmp.cost ? `${tmp.cost} VEX` : 'FREE'}</p>
+                  <p className="text-xs font-mono text-[var(--primary,#8B5CF6)]">{tmp.cost ? `${currencySymbol} ${tmp.cost.toLocaleString()}` : 'FREE'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 mt-auto pt-3 border-t border-zinc-800">
@@ -181,3 +190,4 @@ export function BotTemplatesAdmin() {
     </div>
   )
 }
+

@@ -157,7 +157,7 @@ export default function DashboardPage() {
     const templateObj = templates.find(t => t.id === selectedTemplate)
     const templatePrice = selectedTemplate === 'custom' ? 3500 : (templateObj?.cost || templateObj?.price_extra || 0)
     if (userData?.balance < templatePrice) {
-      setError(`Insufficient balance. Requires ${templatePrice} VEX. Please top up your wallet.`)
+      setError(`Insufficient balance. Requires ${config.currency_symbol || 'TZS'} ${templatePrice}. Please top up your wallet.`)
       return
     }
 
@@ -219,9 +219,9 @@ export default function DashboardPage() {
                 {templates.length === 0 && <option value="">No templates available</option>}
                 {templates.map(t => {
                   const p = t.cost || t.price_extra || 0;
-                  return <option key={t.id} value={t.id}>{t.name} {p ? `(${p} VEX)` : '(FREE)'}</option>
+                  return <option key={t.id} value={t.id}>{t.name} {p ? `(${config.currency_symbol || 'TZS'} ${p})` : '(FREE)'}</option>
                 })}
-                <option value="custom">Custom Github Repository (3500 VEX)</option>
+                <option value="custom">Custom Github Repository ({config.currency_symbol || 'TZS'} 3500)</option>
               </Select>
             </div>
             

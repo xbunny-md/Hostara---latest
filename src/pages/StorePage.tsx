@@ -111,17 +111,28 @@ export default function StorePage() {
                     <span>{bot.downloads || 0}</span>
                   </div>
                   <div className="font-mono font-bold text-[10px] text-[#FC4C64] uppercase tracking-wider">
-                    {bot.cost ? `${bot.cost} VEX • TSH ${(bot.cost * 28).toLocaleString()}` : "FREE"}
+                    {bot.cost ? `${config.currency_symbol || 'TZS'} ${bot.cost.toLocaleString()}` : "FREE"}
                   </div>
                 </div>
 
-                <Button 
-                  onClick={() => handleDeploy(bot.id)}
-                  className="w-full bg-[#FC4C64] hover:bg-[#E03A52] text-white font-medium rounded-xl py-5 transition-colors"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  Deploy
-                </Button>
+                <div className="flex gap-2">
+                  {bot.pairing_url && (
+                    <Button 
+                      variant="outline"
+                      className="flex-1 border-[#FC4C64] text-[#FC4C64] hover:bg-[#FC4C64] hover:text-white font-medium rounded-xl py-5 transition-colors"
+                      onClick={() => window.open(bot.pairing_url, '_blank')}
+                    >
+                      Pair
+                    </Button>
+                  )}
+                  <Button 
+                    onClick={() => handleDeploy(bot.id)}
+                    className="flex-[2] bg-[#FC4C64] hover:bg-[#E03A52] text-white font-medium rounded-xl py-5 transition-colors"
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    Deploy
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
