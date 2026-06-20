@@ -12,25 +12,24 @@ import _firebaseAdmin from "firebase-admin";
 // Normalize admin import to handle both ESM and CJS gracefully
 const admin = _firebaseAdmin.apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
 
-// Initialize Firebase Admin if available (fallbacks for restricted environments)
-if (process.env.FIREBASE_SERVICE_ACCOUNT && !admin.apps?.length) {
-  try {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL
-    });
-  } catch (err) {
-    console.error("Firebase Admin initialization failed.", err);
+// Initialize Firebase Admin safely
+try {
+  const hasApps = admin && admin.apps && admin.apps.length > 0;
+  if (!hasApps) {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL
+      });
+    } else {
+      admin.initializeApp({
+        databaseURL: process.env.FIREBASE_DATABASE_URL
+      });
+    }
   }
-} else if (!admin.apps?.length) {
-  try {
-    admin.initializeApp({
-      databaseURL: process.env.FIREBASE_DATABASE_URL
-    });
-  } catch (err) {
-    console.error("Firebase Admin initialization failed.", err);
-  }
+} catch (err) {
+  console.error("Firebase Admin initialization failed.", err);
 }
 
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "pk_test_Y3VyaW91cy10dW5hLTY2LmNsZXJrLmFjY291bnRzLmRldiQ";

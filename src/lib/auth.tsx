@@ -20,11 +20,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseLoading, setFirebaseLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(firebaseAuth, (user) => {
-      setFirebaseUser(user);
+    try {
+      const unsub = onAuthStateChanged(firebaseAuth, (user) => {
+        setFirebaseUser(user);
+        setFirebaseLoading(false);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn("Firebase auth could not initialize (missing config?).", e);
       setFirebaseLoading(false);
-    });
-    return () => unsub();
+    }
   }, []);
 
   const isLoaded = clerkAuth.isLoaded && !firebaseLoading;

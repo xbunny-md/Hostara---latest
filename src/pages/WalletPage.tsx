@@ -42,6 +42,15 @@ export default function WalletPage() {
   }
 
   if (!isLoaded) return <div className="p-8 text-center text-zinc-400">Loading wallet...</div>
+  
+  if (!user) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-[calc(100vh-3.5rem)]">
+        <h2 className="text-xl font-bold mb-2">Sign In Required</h2>
+        <p className="text-zinc-400 max-w-md">You need to sign in to view your wallet.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 pb-24 md:pb-6 space-y-8 max-w-4xl h-[calc(100vh-3.5rem)] fade-in">

@@ -33,59 +33,64 @@ export default function DashboardPage() {
   const [customStartCmd, setCustomStartCmd] = useState("npm start")
 
   useEffect(() => {
-    if (isLoaded && userId && user) {
-      // Listen to User Data
-      const userRef = ref(db, `users/${userId}`);
-      const unsubUser = onValue(userRef, (snapshot) => {
-        if (!snapshot.exists()) {
-          set(userRef, {
-            email: user.emailAddresses?.[0]?.emailAddress || (user as any).email || "",
-            phone: user.primaryPhoneNumber?.phoneNumber || (user as any).phone || "",
-            plan: 'trial',
-            balance: 0,
-            created_at: Date.now(),
-          });
-        } else {
-          const val = snapshot.val()
-          setUserData(val)
-          if (val.bots) {
-            const list = Object.entries(val.bots).map(([id, data]) => ({ id, ...(data as any) }))
-            list.sort((a,b) => (b.created_at || 0) - (a.created_at || 0));
-            setBots(list)
-          } else {
-            setBots([])
-          }
-        }
-      });
+    if (!isLoaded) return;
+    
+    if (!userId || !user) {
+      setLoading(false);
+      return;
+    }
 
-      // Listen to Templates
-      const templatesRef = ref(db, `bot_templates`);
-      const unsubTemplates = onValue(templatesRef, (snapshot) => {
+    // Listen to User Data
+    const userRef = ref(db, `users/${userId}`);
+    const unsubUser = onValue(userRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        set(userRef, {
+          email: user.emailAddresses?.[0]?.emailAddress || (user as any).email || "",
+          phone: user.primaryPhoneNumber?.phoneNumber || (user as any).phone || "",
+          plan: 'trial',
+          balance: 0,
+          created_at: Date.now(),
+        });
+      } else {
         const val = snapshot.val()
-        if (val) {
-          // Note: In store we might not filter by status, or we might. Removed status filter for now since it's not strictly set in Admin.
-          const list = Object.entries(val).map(([id, data]) => ({ id, ...(data as any) }))
-          setTemplates(list)
-          
-          let initialTid = list[0]?.id;
-          const queryTid = searchParams.get('template')
-          if (queryTid && list.find(t => t.id === queryTid)) {
-            initialTid = queryTid;
-          }
-          
-          if(!selectedTemplate && initialTid) {
-            setSelectedTemplate(initialTid)
-            const pt = list.find(t => t.id === initialTid)
-            if(pt?.required_envs) initEnvVars(pt.required_envs)
-          }
+        setUserData(val)
+        if (val.bots) {
+          const list = Object.entries(val.bots).map(([id, data]) => ({ id, ...(data as any) }))
+          list.sort((a,b) => (b.created_at || 0) - (a.created_at || 0));
+          setBots(list)
+        } else {
+          setBots([])
         }
-      });
-
-      setLoading(false)
-      return () => {
-        unsubUser()
-        unsubTemplates()
       }
+    });
+
+    // Listen to Templates
+    const templatesRef = ref(db, `bot_templates`);
+    const unsubTemplates = onValue(templatesRef, (snapshot) => {
+      const val = snapshot.val()
+      if (val) {
+        // Note: In store we might not filter by status, or we might. Removed status filter for now since it's not strictly set in Admin.
+        const list = Object.entries(val).map(([id, data]) => ({ id, ...(data as any) }))
+        setTemplates(list)
+        
+        let initialTid = list[0]?.id;
+        const queryTid = searchParams.get('template')
+        if (queryTid && list.find(t => t.id === queryTid)) {
+          initialTid = queryTid;
+        }
+        
+        if(!selectedTemplate && initialTid) {
+          setSelectedTemplate(initialTid)
+          const pt = list.find(t => t.id === initialTid)
+          if(pt?.required_envs) initEnvVars(pt.required_envs)
+        }
+      }
+    });
+
+    setLoading(false)
+    return () => {
+      unsubUser()
+      unsubTemplates()
     }
   }, [isLoaded, userId, user])
 
@@ -186,6 +191,15 @@ export default function DashboardPage() {
   }
 
   if (!isLoaded || loading) return <div className="p-8 text-center text-zinc-400">Loading dashboard...</div>
+  
+  if (!user) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-full">
+        <h2 className="text-xl font-bold mb-2">Sign In Required</h2>
+        <p className="text-zinc-400 max-w-md">You need to sign in to access your dashboard.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-8 max-w-5xl">
