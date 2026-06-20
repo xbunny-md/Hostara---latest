@@ -7,10 +7,13 @@ import { clerkMiddleware, requireAuth as clerkRequireAuth } from "@clerk/express
 import { createClerkClient } from "@clerk/express";
 import axios from "axios";
 import { createServer as createViteServer } from "vite";
-import * as admin from "firebase-admin";
+import _firebaseAdmin from "firebase-admin";
+
+// Normalize admin import to handle both ESM and CJS gracefully
+const admin = _firebaseAdmin.apps ? _firebaseAdmin : (_firebaseAdmin as any).default || _firebaseAdmin;
 
 // Initialize Firebase Admin if available (fallbacks for restricted environments)
-if (!admin.apps.length) {
+if (!admin.apps?.length) {
   try {
     admin.initializeApp({
       databaseURL: process.env.FIREBASE_DATABASE_URL
