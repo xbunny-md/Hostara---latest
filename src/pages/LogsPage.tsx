@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams, Link } from "react-router-dom"
-import { useAuth } from "@clerk/clerk-react"
+import { useAppAuth } from "../lib/auth"
 import axios from "axios"
 import { Button } from "../components/ui/button"
 import { ArrowLeft, RefreshCw } from "lucide-react"
 
 export default function LogsPage() {
   const { botId } = useParams()
-  const { isLoaded, userId } = useAuth()
+  const { isLoaded, userId, getToken } = useAppAuth()
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -15,7 +15,9 @@ export default function LogsPage() {
 
   const fetchLogs = async () => {
     try {
-      const res = await axios.get(`/api/bot/${botId}/logs`);
+      const token = await getToken();
+      if (!token) return;
+      const res = await axios.get(`/api/bot/${botId}/logs`, { headers: { Authorization: `Bearer ${token}` } });
       if (Array.isArray(res.data)) {
         setLogs(res.data.reverse()); // Render sends newest first
       }

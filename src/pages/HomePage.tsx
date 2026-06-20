@@ -1,4 +1,4 @@
-import { SignedIn, SignedOut, SignInButton } from "@clerk/clerk-react"
+import { AppSignedIn, AppSignedOut, AppSignInButton } from "../lib/auth"
 import { Link } from "react-router-dom"
 import { Button } from "../components/ui/button"
 import { useConfigStore } from "../lib/store"
@@ -18,25 +18,25 @@ export default function HomePage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 pt-8">
-        <SignedIn>
+        <AppSignedIn>
           <Link to="/dashboard">
             <Button size="lg" className="w-full sm:w-auto text-base bg-[var(--primary,#8B5CF6)] text-white hover:opacity-90">
               Go to Dashboard
             </Button>
           </Link>
-        </SignedIn>
-        <SignedOut>
-          <SignInButton mode="modal">
+        </AppSignedIn>
+        <AppSignedOut>
+          <AppSignInButton mode="modal">
             <Button size="lg" className="w-full sm:w-auto text-base bg-[var(--primary,#8B5CF6)] text-white hover:opacity-90">
               Get Started Now
             </Button>
-          </SignInButton>
+          </AppSignInButton>
           <Link to={config.guest_mode_enabled ? "/store" : "#"}>
             <Button variant="outline" size="lg" className="w-full sm:w-auto text-base border-zinc-700 hover:bg-zinc-800">
               Browse Templates
             </Button>
           </Link>
-        </SignedOut>
+        </AppSignedOut>
       </div>
       
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-16 w-full max-w-5xl">

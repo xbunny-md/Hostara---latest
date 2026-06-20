@@ -1,24 +1,25 @@
 import { useEffect, useState } from "react"
-import { useAuth, useUser } from "@clerk/clerk-react"
 import { ref, onValue, set, get } from "firebase/database"
 import { db } from "../lib/firebase"
 import axios from "axios"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { Select } from "../components/ui/select"
 import { useConfigStore } from "../lib/store"
-import { Bot, Terminal, Settings } from "lucide-react"
+import { Bot, Terminal, Settings, Activity } from "lucide-react"
+import { useAppAuth } from "../lib/auth"
 
 export default function DashboardPage() {
-  const { isLoaded, userId } = useAuth()
-  const { user } = useUser()
+  const { isLoaded, userId, user, getToken } = useAppAuth()
   const { config } = useConfigStore()
+  const [searchParams] = useSearchParams()
   const [bots, setBots] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [deploying, setDeploying] = useState(false)
   const [userData, setUserData] = useState<any>(null)
+  const [uptimeData, setUptimeData] = useState<Record<string, any>>({})
 
   // Form Fields
   const [botName, setBotName] = useState("")
@@ -38,8 +39,8 @@ export default function DashboardPage() {
       const unsubUser = onValue(userRef, (snapshot) => {
         if (!snapshot.exists()) {
           set(userRef, {
-            email: user.primaryEmailAddress?.emailAddress || "",
-            phone: user.primaryPhoneNumber?.phoneNumber || "",
+            email: user.emailAddresses?.[0]?.emailAddress || (user as any).email || "",
+            phone: user.primaryPhoneNumber?.phoneNumber || (user as any).phone || "",
             plan: 'trial',
             balance: 0,
             created_at: Date.now(),
@@ -62,11 +63,20 @@ export default function DashboardPage() {
       const unsubTemplates = onValue(templatesRef, (snapshot) => {
         const val = snapshot.val()
         if (val) {
-          const list = Object.entries(val).map(([id, data]) => ({ id, ...(data as any) })).filter(t => t.status === 'published')
+          // Note: In store we might not filter by status, or we might. Removed status filter for now since it's not strictly set in Admin.
+          const list = Object.entries(val).map(([id, data]) => ({ id, ...(data as any) }))
           setTemplates(list)
-          if(list.length > 0 && !selectedTemplate) {
-            setSelectedTemplate(list[0].id)
-            initEnvVars(list[0].required_envs)
+          
+          let initialTid = list[0]?.id;
+          const queryTid = searchParams.get('template')
+          if (queryTid && list.find(t => t.id === queryTid)) {
+            initialTid = queryTid;
+          }
+          
+          if(!selectedTemplate && initialTid) {
+            setSelectedTemplate(initialTid)
+            const pt = list.find(t => t.id === initialTid)
+            if(pt?.required_envs) initEnvVars(pt.required_envs)
           }
         }
       });
@@ -78,6 +88,32 @@ export default function DashboardPage() {
       }
     }
   }, [isLoaded, userId, user])
+
+  // Uptime Polling Mechanism
+  useEffect(() => {
+    let interval: any;
+    const fetchUptime = async () => {
+      const token = await getToken();
+      if (!token) return;
+      const data: Record<string, any> = {};
+      await Promise.all(bots.filter(b => b.status !== 'deploying').map(async (bot) => {
+          try {
+              const res = await axios.get(`/api/bot/${bot.id}/uptime`, { headers: { Authorization: `Bearer ${token}` } });
+              data[bot.id] = res.data;
+          } catch(e) {
+              data[bot.id] = { status: "down", uptime_ratio: "0.00", response_time: 0 };
+          }
+      }));
+      setUptimeData(prev => ({ ...prev, ...data }));
+    };
+
+    if (bots.length > 0) {
+      fetchUptime();
+      interval = setInterval(fetchUptime, 30000); // Polling every 30s
+    }
+
+    return () => clearInterval(interval);
+  }, [bots, getToken]);
 
   const initEnvVars = (envs: string[]) => {
     const vars: Record<string, string> = {}
@@ -118,9 +154,10 @@ export default function DashboardPage() {
       return
     }
 
-    const templatePrice = selectedTemplate === 'custom' ? 3500 : (templates.find(t => t.id === selectedTemplate)?.price_extra || 0)
+    const templateObj = templates.find(t => t.id === selectedTemplate)
+    const templatePrice = selectedTemplate === 'custom' ? 3500 : (templateObj?.cost || templateObj?.price_extra || 0)
     if (userData?.balance < templatePrice) {
-      setError(`Insufficient balance. Requires ${config.currency_symbol || '$'}${templatePrice}. Please top up your wallet.`)
+      setError(`Insufficient balance. Requires ${templatePrice} VEX. Please top up your wallet.`)
       return
     }
 
@@ -128,6 +165,7 @@ export default function DashboardPage() {
     setError("")
 
     try {
+      const token = await getToken();
       await axios.post("/api/deploy", {
         templateId: selectedTemplate,
         name: botName.trim(),
@@ -135,7 +173,7 @@ export default function DashboardPage() {
         customRepoUrl,
         customBuildCmd,
         customStartCmd
-      });
+      }, { headers: { Authorization: `Bearer ${token}` } });
       setBotName("")
       if (selectedTemplate !== 'custom') {
         initEnvVars(templates.find(t => t.id === selectedTemplate)?.required_envs || [])
@@ -179,10 +217,11 @@ export default function DashboardPage() {
                 disabled={deploying || templates.length === 0}
               >
                 {templates.length === 0 && <option value="">No templates available</option>}
-                {templates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} {t.price_extra ? `(+${config.currency_symbol || '$'}${t.price_extra})` : ''}</option>
-                ))}
-                <option value="custom">Custom Github Repository (+{config.currency_symbol || '$'}3500)</option>
+                {templates.map(t => {
+                  const p = t.cost || t.price_extra || 0;
+                  return <option key={t.id} value={t.id}>{t.name} {p ? `(${p} VEX)` : '(FREE)'}</option>
+                })}
+                <option value="custom">Custom Github Repository (3500 VEX)</option>
               </Select>
             </div>
             
@@ -270,14 +309,26 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <p className="text-sm text-zinc-400 mb-2">Started: {new Date(bot.created_at).toLocaleString()}</p>
-                  <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-2 text-sm mt-2">
                     <div className="flex items-center gap-1.5 text-emerald-400">
                       <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        {bot.status === 'deploying' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                        <span className={`relative inline-flex rounded-full h-2 w-2 ${bot.status === 'deploying' ? 'bg-emerald-500' : (bot.status === 'error' ? 'bg-red-500' : 'bg-emerald-500')}`}></span>
                       </span>
                       {bot.status === 'deploying' ? 'Deploying...' : 'Live'}
                     </div>
+
+                    {bot.status !== 'deploying' && uptimeData[bot.id] && (
+                      <div className="flex items-center gap-3 ml-2 text-zinc-400 border-l border-zinc-700 pl-3">
+                         <div className="flex items-center gap-1 tooltip" title="Live Availability">
+                            <Activity className="h-3.5 w-3.5 text-zinc-500" />
+                            <span className="font-mono text-xs">{uptimeData[bot.id].uptime_ratio}% Uptime</span>
+                         </div>
+                         <div className="flex items-center gap-1 tooltip" title="Ping latency">
+                            <span className="font-mono text-xs">{uptimeData[bot.id].response_time}ms ping</span>
+                         </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 

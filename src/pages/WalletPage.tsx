@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useAuth, useUser } from "@clerk/clerk-react"
+import { useAppAuth } from "../lib/auth"
 import { useConfigStore } from "../lib/store"
 import { db } from "../lib/firebase"
 import { ref, onValue } from "firebase/database"
@@ -8,8 +8,7 @@ import { Button } from "../components/ui/button"
 import axios from "axios"
 
 export default function WalletPage() {
-  const { isLoaded, userId } = useAuth()
-  const { user } = useUser()
+  const { isLoaded, userId, user, getToken } = useAppAuth()
   const { config } = useConfigStore()
   const [balance, setBalance] = useState<number>(0)
   const [claiming, setClaiming] = useState(false)
@@ -31,7 +30,9 @@ export default function WalletPage() {
     setClaiming(true)
     setMsg(null)
     try {
-      const res = await axios.post('/api/wallet/bonus')
+      const token = await getToken();
+      if (!token) return;
+      const res = await axios.post('/api/wallet/bonus', {}, { headers: { Authorization: `Bearer ${token}` } })
       setMsg({ text: res.data.message, type: 'success' })
     } catch (e: any) {
       setMsg({ text: e.response?.data?.error || "Failed to claim bonus", type: 'error' })

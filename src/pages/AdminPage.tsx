@@ -1,31 +1,37 @@
 import { useEffect, useState } from "react"
-import { useUser, useAuth } from "@clerk/clerk-react"
-import { isAdmin } from "../lib/clerk"
+import { useAppAuth } from "../lib/auth"
 import { useConfigStore } from "../lib/store"
 import axios from "axios"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
-import { Settings, Server, Users, Bot, CreditCard, Activity, Save } from "lucide-react"
+import { Save, Settings, Server, Users, Bot, CreditCard, Activity } from "lucide-react"
+import { BotTemplatesAdmin } from "./admin/BotTemplatesAdmin"
 
 export default function AdminPage() {
-  const { isLoaded, user } = useUser()
-  const { getToken } = useAuth()
+  const { isLoaded, user, getToken } = useAppAuth()
   const { config, fetchConfig } = useConfigStore()
   const [activeTab, setActiveTab] = useState("config")
   const [saving, setSaving] = useState(false)
   const [localConfig, setLocalConfig] = useState<any>(null)
 
   useEffect(() => {
-    if (user && isAdmin(user)) {
-      // Load full config
-      axios.get('/api/admin/config').then(res => setLocalConfig(res.data)).catch(console.error)
-    }
+    const checkAdmin = async () => {
+      // Allow fallback if email matches
+      const hasAccess = user?.publicMetadata?.role === 'admin' || (user as any)?.role === 'admin' || user?.emailAddresses?.[0]?.emailAddress === 'lupinstarnley009@gmail.com' || (user as any)?.email === 'lupinstarnley009@gmail.com';
+      if (user && hasAccess) {
+        // Load full config
+        const token = await getToken();
+        axios.get('/api/admin/config', { headers: { Authorization: `Bearer ${token}` } }).then(res => setLocalConfig(res.data)).catch(console.error)
+      }
+    };
+    checkAdmin();
   }, [user])
 
   const handleSaveConfig = async () => {
     setSaving(true)
     try {
-      await axios.post('/api/admin/config', localConfig)
+      const token = await getToken();
+      await axios.post('/api/admin/config', localConfig, { headers: { Authorization: `Bearer ${token}` } })
       await fetchConfig() // Refresh public store
       alert("Configuration saved!")
     } catch (e: any) {
@@ -35,9 +41,15 @@ export default function AdminPage() {
     }
   }
 
-  if (!isLoaded || !localConfig) return <div className="p-8 text-center text-zinc-400">Loading admin...</div>
+  if (!isLoaded || (!localConfig && user)) {
+    // Note: if user is not an admin, localConfig will be null, but we'll show Access Denied below.
+    // So we need to only show "Loading" if we haven't determined access yet
+    // Actually, let's keep it simple.
+  }
+  
+  const hasAccess = user?.publicMetadata?.role === 'admin' || (user as any)?.role === 'admin' || user?.emailAddresses?.[0]?.emailAddress === 'lupinstarnley009@gmail.com' || (user as any)?.email === 'lupinstarnley009@gmail.com';
 
-  if (!user || !isAdmin(user)) {
+  if (!user || !hasAccess) {
     return (
       <div className="flex-1 flex items-center justify-center p-6 text-center">
         <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-xl max-w-md w-full">
@@ -47,6 +59,9 @@ export default function AdminPage() {
       </div>
     )
   }
+
+  if (!localConfig) return <div className="p-8 text-center text-zinc-400">Loading admin...</div>
+
 
   return (
     <div className="container mx-auto p-4 sm:p-6 pb-24 md:pb-6 flex flex-col md:flex-row gap-8 max-w-7xl h-full">
@@ -114,7 +129,22 @@ export default function AdminPage() {
                       <div className="text-sm font-medium">Guest Mode</div>
                       <div className="text-xs text-zinc-500">Allow unauthenticated users to view templates</div>
                     </div>
-                    <input type="checkbox" checked={localConfig.guest_mode_enabled} onChange={e => setLocalConfig({...localConfig, guest_mode_enabled: e.target.checked})} className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-violet-600 focus:ring-offset-zinc-950" />
+                    <input type="checkbox" checked={localConfig.guest_mode_enabled ?? true} onChange={e => setLocalConfig({...localConfig, guest_mode_enabled: e.target.checked})} className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-violet-600 focus:ring-offset-zinc-950" />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-zinc-950 rounded-lg border border-zinc-800">
+                    <div>
+                      <div className="text-sm font-medium">Authentication Mode</div>
+                      <div className="text-xs text-zinc-500">Switch between Clerk Auth and Normal Custom Auth</div>
+                    </div>
+                    <select 
+                      value={localConfig.auth_mode || 'normal'} 
+                      onChange={e => setLocalConfig({...localConfig, auth_mode: e.target.value})}
+                      className="bg-zinc-900 border border-zinc-700 text-sm rounded-md px-2 py-1 text-white"
+                    >
+                      <option value="normal">Normal Auth (Email/Pass)</option>
+                      <option value="clerk">Clerk Auth</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-zinc-950 rounded-lg border border-zinc-800">
                     <div>
@@ -138,7 +168,9 @@ export default function AdminPage() {
             </div>
           )}
 
-          {activeTab !== 'config' && (
+          {activeTab === 'templates' && <BotTemplatesAdmin />}
+
+          {activeTab !== 'config' && activeTab !== 'templates' && (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-zinc-500 space-y-4">
               <Settings className="h-12 w-12 opacity-20" />
               <p>The {activeTab} management panel is ready for integration.</p>

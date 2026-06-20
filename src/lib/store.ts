@@ -11,6 +11,7 @@ interface HostaraConfig {
   plans: any;
   logo_url: string;
   favicon_url: string;
+  auth_mode: 'clerk' | 'normal';
 }
 
 interface ConfigStore {
@@ -30,7 +31,8 @@ export const useConfigStore = create<ConfigStore>((set) => ({
     broadcast_message: "",
     plans: {},
     logo_url: "",
-    favicon_url: ""
+    favicon_url: "",
+    auth_mode: "normal",
   },
   setConfig: (config) => set({ config }),
   fetchConfig: async () => {

@@ -1,11 +1,11 @@
 import { Routes, Route, Link, Outlet } from "react-router-dom"
-import { SignedIn, SignedOut, SignInButton, UserButton, useUser, useAuth } from "@clerk/clerk-react"
 import { Home, Bot, ShoppingBag, Wallet, ShieldAlert, Cpu } from "lucide-react"
 import { useEffect, useState } from "react"
 import axios from "axios"
 import { useConfigStore } from "./lib/store"
 import { db } from "./lib/firebase"
 import { ref, onValue } from "firebase/database"
+import { useAppAuth, AppSignedIn, AppSignedOut, AppSignInButton, AppUserButton, AuthProvider } from "./lib/auth"
 
 import HomePage from "./pages/HomePage"
 import DashboardPage from "./pages/DashboardPage"
@@ -13,10 +13,11 @@ import AdminPage from "./pages/AdminPage"
 import LogsPage from "./pages/LogsPage"
 import WalletPage from "./pages/WalletPage"
 
+import StorePage from "./pages/StorePage"
+
 function MainLayout() {
   const { config, fetchConfig } = useConfigStore()
-  const { isLoaded, userId } = useAuth()
-  const { user } = useUser()
+  const { isLoaded, userId, user, getToken } = useAppAuth()
   const [balance, setBalance] = useState<number | null>(null)
 
   useEffect(() => {
@@ -30,8 +31,10 @@ function MainLayout() {
   }, [config.primary_color])
 
   useEffect(() => {
-    if (isLoaded && user && user.emailAddresses[0]?.emailAddress === 'lupinstarnley009@gmail.com' && user.publicMetadata.role !== 'admin') {
-      axios.post('/api/setup/first-admin').then(() => window.location.reload()).catch(e => console.error(e))
+    if (isLoaded && user && user.emailAddresses?.[0]?.emailAddress === 'lupinstarnley009@gmail.com' && user.publicMetadata?.role !== 'admin') {
+      getToken().then((token: string) => {
+        axios.post('/api/setup/first-admin', {}, { headers: { Authorization: `Bearer ${token}` } }).then(() => window.location.reload()).catch(e => console.error(e))
+      });
     }
   }, [isLoaded, user])
 
@@ -47,7 +50,10 @@ function MainLayout() {
     }
   }, [userId])
 
-  if (config.maintenance_mode && user?.publicMetadata?.role !== 'admin') {
+  // Need to safely check role for both firebase and clerk users
+  const role = user?.publicMetadata?.role || (user as any)?.role;
+
+  if (config.maintenance_mode && role !== 'admin') {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-center p-6 text-white space-y-4">
         <ShieldAlert className="h-16 w-16 text-yellow-500 mb-4" />
@@ -73,7 +79,7 @@ function MainLayout() {
             <span className="text-xs text-zinc-500 hidden sm:inline-block mt-0.5">{config.app_tagline}</span>
           </Link>
           <div className="flex items-center space-x-4">
-            <SignedIn>
+            <AppSignedIn>
               <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
                 <Link to="/" className="transition-colors hover:text-white text-zinc-400">Home</Link>
                 <Link to="/dashboard" className="transition-colors hover:text-white text-zinc-400">Dashboard</Link>
@@ -82,21 +88,21 @@ function MainLayout() {
                   {balance !== null ? `${config.currency_symbol || '$'}${balance}` : 'Wallet'}
                 </Link>
                 <Link to="/store" className="transition-colors hover:text-white text-zinc-400">Store</Link>
-                {user?.publicMetadata?.role === 'admin' && (
+                {role === 'admin' && (
                   <Link to="/admin" className="transition-colors text-[var(--primary,#8B5CF6)] hover:text-white flex items-center gap-1">
                     <Cpu className="h-4 w-4" /> Admin
                   </Link>
                 )}
               </nav>
-              <UserButton />
-            </SignedIn>
-            <SignedOut>
-              <SignInButton mode="modal">
-                <button className="h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium bg-[var(--primary,#8B5CF6)] text-white hover:opacity-90 transition-opacity">
+              <AppUserButton />
+            </AppSignedIn>
+            <AppSignedOut>
+              <AppSignInButton mode="modal">
+                <button className="h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium bg-[var(--primary,#8B5CF6)] text-white hover:opacity-90 transition-opacity cursor-pointer">
                   Sign In
                 </button>
-              </SignInButton>
-            </SignedOut>
+              </AppSignInButton>
+            </AppSignedOut>
           </div>
         </div>
       </header>
@@ -105,7 +111,7 @@ function MainLayout() {
         <Outlet />
       </main>
 
-      <SignedIn>
+      <AppSignedIn>
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800 bg-[#0A0A0A] py-2 px-6 flex justify-between items-center pb-safe">
           <Link to="/" className="flex flex-col items-center text-zinc-400 hover:text-[var(--primary,#8B5CF6)]">
             <Home className="h-5 w-5" />
@@ -120,26 +126,28 @@ function MainLayout() {
             <span className="text-[10px] mt-1 font-medium">Store</span>
           </Link>
           <div className="flex flex-col items-center justify-center">
-            <UserButton />
+            <AppUserButton />
             <span className="text-[10px] mt-1 text-zinc-400 font-medium">Profile</span>
           </div>
         </div>
-      </SignedIn>
+      </AppSignedIn>
     </div>
   )
 }
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<MainLayout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/dashboard/logs/:botId" element={<LogsPage />} />
-        <Route path="/wallet" element={<WalletPage />} />
-        <Route path="/store" element={<div className="p-8 text-center"><h1 className="text-2xl font-bold mb-2">Store</h1><p className="text-zinc-400">Bot templates and plugins marketplace.</p></div>} />
-        <Route path="/admin" element={<AdminPage />} />
-      </Route>
-    </Routes>
+    <AuthProvider>
+      <Routes>
+        <Route element={<MainLayout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/logs/:botId" element={<LogsPage />} />
+          <Route path="/wallet" element={<WalletPage />} />
+          <Route path="/store" element={<StorePage />} />
+          <Route path="/admin" element={<AdminPage />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   )
 }
